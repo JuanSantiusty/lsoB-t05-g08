@@ -1,0 +1,13 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include "barbero.h"
+
+
+
+//Funciones para barbero y cliente
+void* barbero(void* arg);
+void* cliente(void* numCliente);
+
+// Ejecutar problema del barbero
+void ejecutar_barbero(int numSillas,int numClientes);
