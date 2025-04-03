@@ -1,101 +1,119 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <pthread.h>
 #include "barbero.h"
 
-//Varible para saber el numero de sillas disponibles
-int sillasDisponibles=0;
-int sillasTotales=0;
-int clientesTotales=0;
-int cliente=0;
-int barbero=0;
-//Varibles para sincronizacion
-pthread_mutex_t barbero = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t esperarBarbero =  PTHREAD_COND_INITIALIZER;
+// Variables globales
+int sillasDisponibles = 0;
+int sillasTotales = 0;
+int clientesTotales = 0;
+int clienteEsperando = 0;
+int barberoOcupado = 0;
 
-pthread_mutex_t cliente = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t esperarCliente =  PTHREAD_COND_INITIALIZER;
+// Variables para sincronización
+pthread_mutex_t mutexBarbero = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t condBarbero = PTHREAD_COND_INITIALIZER;
 
+pthread_mutex_t mutexCliente = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t condCliente = PTHREAD_COND_INITIALIZER;
 
-/**
-*@brief Funcion para el hilo del barbero
-*/
-void* barbero(void* arg){
-  //Mientras aun existan clientes esperando
-  while(clientesTotales>0){
-    //Esperar un cliente
-    pthread_mutex_lock(&cliente);
-    barbero=1;
-    while(cliente==0){
-      pthread_cond_wait(&esperarCliente,&cliente);
+// Función para simular el corte de cabello
+void cortar_cabello() {
+    printf("Barbero está cortando el cabello...\n");
+    sleep(2);  // Simula el tiempo de corte
+    printf("Cabello cortado.\n");
+}
+
+// Función para clientes que se van
+void salir(int numCli) {
+    printf("El cliente %d se fue de la barbería porque no había sillas disponibles.\n", numCli);
+}
+
+// Función para el hilo del barbero
+void* barbero(void* arg) {
+    while (clientesTotales > 0) {
+        pthread_mutex_lock(&mutexCliente);
+        while (clienteEsperando == 0) {
+            printf("Barbero está durmiendo...\n");
+            pthread_cond_wait(&condCliente, &mutexCliente);
+        }
+        clienteEsperando--;
+        barberoOcupado = 1;
+        pthread_mutex_unlock(&mutexCliente);
+
+        // Cortar el cabello del cliente
+        cortar_cabello();
+
+        // Libera la silla
+        pthread_mutex_lock(&mutexBarbero);
+        sillasDisponibles++;
+        barberoOcupado = 0;
+        pthread_cond_signal(&condBarbero);
+        pthread_mutex_unlock(&mutexBarbero);
     }
-    pthread_mutex_unlock(&cliente);
-    //Cortar Cabello al cliente
-    clientesEsperando-=1;
-    cliente=0;
-    cortar_cabello();
-    if(sillasDisponibles<sillasTotales){
-      sillasDisponibles+=1;
+    pthread_exit(NULL);
+}
+
+// Función para los hilos de los clientes
+void* cliente(void* numCliente) {
+    int num = *(int*)numCliente;
+    free(numCliente);  // Liberar memoria del puntero
+
+    pthread_mutex_lock(&mutexBarbero);
+    if (sillasDisponibles > 0) {
+        printf("Cliente %d se sentó en una silla de espera.\n", num);
+        sillasDisponibles--;
+
+        pthread_mutex_lock(&mutexCliente);
+        clienteEsperando++;
+        pthread_cond_signal(&condCliente);
+        pthread_mutex_unlock(&mutexCliente);
+
+        // Esperar al barbero
+        while (barberoOcupado) {
+            pthread_cond_wait(&condBarbero, &mutexBarbero);
+        }
+        pthread_mutex_unlock(&mutexBarbero);
+    } else {
+        salir(num);
+        pthread_mutex_unlock(&mutexBarbero);
     }
-  }
+
+    pthread_exit(NULL);
 }
 
-//Fyncion para los hilos de clientes
-void* cliente(void* numCliente){
-  int num=*(int *)numCliente;
-  //Esperar barbero, pero si no ahi sillas disponibles abandonar el lugar
-  pthread_mutex_lock(&barbero);
-  //Espera 1 segundo por una silla
-  sleep(1);
-  if(sillasDisponible>0 && sillasDisponibles<=sillasTotales){
-    sillasDisponibles-=1;
-  }else{
-    salir(num);
-    clientesTotales-=1;
-    pthread_mutex_unlock(&barbero);
-  }
+// Función principal para ejecutar el problema del barbero
+void ejecutar_barbero(int numSillas, int numClientes) {
+    sillasDisponibles = numSillas;
+    sillasTotales = numSillas;
+    clientesTotales = numClientes;
+
+    pthread_t hiloBarbero;
+    pthread_t hilosClientes[numClientes];
+
+    // Crear hilo del barbero
+    pthread_create(&hiloBarbero, NULL, barbero, NULL);
+
+    // Crear hilos de clientes
+    for (int i = 0; i < numClientes; i++) {
+        int* idCliente = malloc(sizeof(int));
+        *idCliente = i + 1;  // Números de clientes desde 1
+        pthread_create(&hilosClientes[i], NULL, cliente, idCliente);
+        usleep(100000);  // Simula la llegada de clientes con un pequeño retraso
+    }
+
+    // Esperar que terminen los hilos
+    pthread_join(hiloBarbero, NULL);
+    for (int i = 0; i < numClientes; i++) {
+        pthread_join(hilosClientes[i], NULL);
+    }
+
+    // Liberar recursos
+    pthread_mutex_destroy(&mutexCliente);
+    pthread_cond_destroy(&condCliente);
+    pthread_mutex_destroy(&mutexBarbero);
+    pthread_cond_destroy(&condBarbero);
 }
 
-//Funcion para cortar cabello
-void cortar_cabello(){
-  printf("Cortando cabello");
-  sleep(1);
-  printf("Cabello cortado");
-}
 
-//Funcion para irse
-void salir(int numCli){
-  printf("El cliente %d salio de la barberia",&numCli);
-}
-/**
- *@brief Funcion que ejecuta el problema del barbero creando los hilos de brabero y clientes
- *@param numSillas Numero de sillas de la tienda
- *@param numClientes Numero de clientes que recibira la tienda
- */
-void ejecutar_barbero(int numSillas,int numClientes){
-  int i=0;
-  sillasDisponibles=numSillas;
-  sillasTotales=numSillas;
-  clientesTotales=numClientes;
-  //Declarar hilos de barbero y clientes
-  pthread_t hiloBarbero;
-  pthread_t hilosClientes[numClientes];
-
-  //Crear hilo barbero
-  pthread_create(&hiloBarbero,NULL,barbero,NULL);
-  //Crear hilos de clientes
-  for (i=0;i<numClientes;i++){
-    pthread_create(&hilosClientes[i],NULL,cliente,(void*)i);
-  }
-
-  //Esperar que terminen los hilos
-  pthread_join(hiloBarbero,NULL)
-  for (i=0;i<numClientes;i++){
-    pthread_join(hilosClientes[i],NULL);
-  }
-  //Liberar los mutex y condicionales
-  pthread_mutex_destroy(&cliente);
-  pthread_cond_destroy(&esperarCliente);
-  pthread_mutex_destroy(&barbero);
-  pthread_cond_destroy(&esperarBarbero);
-}
