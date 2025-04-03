@@ -43,7 +43,9 @@ void* barbero(void* arg) {
         pthread_mutex_unlock(&mutexCliente);
 
         // Cortar el cabello del cliente
+        if(clientesTotales > 0){
         cortar_cabello();
+        }
 
         // Libera la silla
         pthread_mutex_lock(&mutexBarbero);
@@ -52,35 +54,34 @@ void* barbero(void* arg) {
         pthread_cond_signal(&condBarbero);
         pthread_mutex_unlock(&mutexBarbero);
     }
-    pthread_exit(NULL);
 }
 
 // Función para los hilos de los clientes
 void* cliente(void* numCliente) {
     int num = *(int*)numCliente;
-    free(numCliente);  // Liberar memoria del puntero
 
     pthread_mutex_lock(&mutexBarbero);
     if (sillasDisponibles > 0) {
         printf("Cliente %d se sentó en una silla de espera.\n", num);
         sillasDisponibles--;
 
-        pthread_mutex_lock(&mutexCliente);
         clienteEsperando++;
         pthread_cond_signal(&condCliente);
-        pthread_mutex_unlock(&mutexCliente);
-
-        // Esperar al barbero
+        
+         // Esperar al barbero
         while (barberoOcupado) {
             pthread_cond_wait(&condBarbero, &mutexBarbero);
         }
+        
+        clientesTotales--;
         pthread_mutex_unlock(&mutexBarbero);
     } else {
         salir(num);
+        clientesTotales--;
         pthread_mutex_unlock(&mutexBarbero);
     }
 
-    pthread_exit(NULL);
+    
 }
 
 // Función principal para ejecutar el problema del barbero
@@ -99,8 +100,8 @@ void ejecutar_barbero(int numSillas, int numClientes) {
     for (int i = 0; i < numClientes; i++) {
         int* idCliente = malloc(sizeof(int));
         *idCliente = i + 1;  // Números de clientes desde 1
+        sleep(1);
         pthread_create(&hilosClientes[i], NULL, cliente, idCliente);
-        usleep(100000);  // Simula la llegada de clientes con un pequeño retraso
     }
 
     // Esperar que terminen los hilos
